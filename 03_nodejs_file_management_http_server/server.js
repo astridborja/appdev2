@@ -1,118 +1,105 @@
 const http = require('http');
-const url = require('url');
 const fs = require('fs');
 const path = require('path');
+const url = require('url');
 const EventEmitter = require('events');
 
-const PORT = 3000;
-const fileManager = new EventEmitter();
+// Event emitter instance
+const eventEmitter = new EventEmitter();
 
-// Create a new HTTP server
-const server = http.createServer((req, res) => {
-  const parsedUrl = url.parse(req.url, true);
-  const method = req.method;
+// Define the folder path to store files
+const directoryPath = path.join(__dirname, 'files');
 
-  // Set headers for the response
-  res.setHeader('Content-Type', 'application/json');
-
-  if (method === 'GET') {
-    switch (parsedUrl.pathname) {
-      case '/create':
-        createFile(parsedUrl.query.filename, res);
-        break;
-      case '/read':
-        readFile(parsedUrl.query.filename, res);
-        break;
-      case '/update':
-        updateFile(parsedUrl.query.filename, parsedUrl.query.content, res);
-        break;
-      case '/delete':
-        deleteFile(parsedUrl.query.filename, res);
-        break;
-      default:
-        res.statusCode = 404;
-        res.end(JSON.stringify({ message: 'Route not found' }));
-    }
-  } else {
-    res.statusCode = 405;
-    res.end(JSON.stringify({ message: 'Method not allowed' }));
-  }
-});
-
-// File operations with fs module
-function createFile(filename, res) {
-  const filePath = path.join(__dirname, filename);
-
-  fs.writeFile(filePath, '', (err) => {
-    if (err) {
-      res.statusCode = 500;
-      res.end(JSON.stringify({ message: 'Error creating file', error: err }));
-    } else {
-      fileManager.emit('fileCreated', filename);
-      res.statusCode = 201;
-      res.end(JSON.stringify({ message: 'File created successfully' }));
-    }
-  });
+// Ensure the directory exists
+if (!fs.existsSync(directoryPath)) {
+  fs.mkdirSync(directoryPath);
 }
 
-function readFile(filename, res) {
-  const filePath = path.join(__dirname, filename);
-
-  fs.readFile(filePath, 'utf8', (err, data) => {
-    if (err) {
-      res.statusCode = 500;
-      res.end(JSON.stringify({ message: 'Error reading file', error: err }));
-    } else {
-      res.statusCode = 200;
-      res.end(JSON.stringify({ filename, content: data }));
-    }
-  });
-}
-
-function updateFile(filename, content, res) {
-  const filePath = path.join(__dirname, filename);
-
-  fs.appendFile(filePath, content, (err) => {
-    if (err) {
-      res.statusCode = 500;
-      res.end(JSON.stringify({ message: 'Error updating file', error: err }));
-    } else {
-      fileManager.emit('fileUpdated', filename);
-      res.statusCode = 200;
-      res.end(JSON.stringify({ message: 'File updated successfully' }));
-    }
-  });
-}
-
-function deleteFile(filename, res) {
-  const filePath = path.join(__dirname, filename);
-
-  fs.unlink(filePath, (err) => {
-    if (err) {
-      res.statusCode = 500;
-      res.end(JSON.stringify({ message: 'Error deleting file', error: err }));
-    } else {
-      fileManager.emit('fileDeleted', filename);
-      res.statusCode = 200;
-      res.end(JSON.stringify({ message: 'File deleted successfully' }));
-    }
-  });
-}
-
-// Event listeners
-fileManager.on('fileCreated', (filename) => {
+// Function to log events
+eventEmitter.on('fileCreated', (filename) => {
   console.log(`File created: ${filename}`);
 });
 
-fileManager.on('fileUpdated', (filename) => {
-  console.log(`File updated: ${filename}`);
-});
-
-fileManager.on('fileDeleted', (filename) => {
+eventEmitter.on('fileDeleted', (filename) => {
   console.log(`File deleted: ${filename}`);
 });
 
-// Start server
+// Create the HTTP server
+const server = http.createServer((req, res) => {
+  const parsedUrl = url.parse(req.url, true);
+  const pathname = parsedUrl.pathname;
+
+  // Handle different routes
+  if (pathname === '/create' && req.method === 'GET') {
+    const filename = parsedUrl.query.filename;
+    if (!filename) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing filename query parameter');
+      return;
+    }
+
+    // Create the file
+    const filePath = path.join(directoryPath, filename);
+    fs.writeFile(filePath, '', (err) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Error creating file');
+        return;
+      }
+      eventEmitter.emit('fileCreated', filename);
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(`File ${filename} created`);
+    });
+
+  } else if (pathname === '/read' && req.method === 'GET') {
+    const filename = parsedUrl.query.filename;
+    if (!filename) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing filename query parameter');
+      return;
+    }
+
+    // Read the file
+    const filePath = path.join(directoryPath, filename);
+    fs.readFile(filePath, 'utf8', (err, data) => {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('File not found');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(data);
+    });
+
+  } else if (pathname === '/delete' && req.method === 'DELETE') {
+    const filename = parsedUrl.query.filename;
+    if (!filename) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing filename query parameter');
+      return;
+    }
+
+    // Delete the file
+    const filePath = path.join(directoryPath, filename);
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('File not found');
+        return;
+      }
+      eventEmitter.emit('fileDeleted', filename);
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(`File ${filename} deleted`);
+    });
+
+  } else {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+  }
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server is running at http://localhost:${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
