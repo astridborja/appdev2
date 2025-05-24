@@ -1,60 +1,77 @@
 const express = require('express');
+const mongoose = require('mongoose');
+const Book = require('./book');
 const app = express();
 const PORT = 3000;
 
 app.use(express.json());
 
-// In-memory book collection
-let books = [
-  { id: 1, title: 'The Alchemist', author: 'Paulo Coelho' },
-  { id: 2, title: '1984', author: 'George Orwell' }
-];
+// 🔌 Connect to MongoDB
+mongoose.connect('mongodb://localhost:27017/bookapi', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log("✅ Connected to MongoDB"))
+.catch(err => console.error("❌ MongoDB connection error:", err));
 
-// Routes
+// 🏠 Welcome Route
 app.get('/', (req, res) => {
-  res.send('Simple Book API using Node.js and Express');
+  res.send("Simple Book API using Node.js, Express, and MongoDB");
 });
 
-app.get('/api/books', (req, res) => {
+// 📚 Get all books
+app.get('/api/books', async (req, res) => {
+  const books = await Book.find();
   res.json(books);
 });
 
-app.get('/api/books/:id', (req, res) => {
-  const book = books.find(b => b.id === parseInt(req.params.id));
-  if (!book) return res.status(404).json({ message: 'Book not found' });
-  res.json(book);
+// 📖 Get book by ID
+app.get('/api/books/:id', async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id);
+    if (!book) return res.status(404).json({ message: "Book not found" });
+    res.json(book);
+  } catch {
+    res.status(400).json({ message: "Invalid ID" });
+  }
 });
 
-app.post('/api/books', (req, res) => {
-  const { title, author } = req.body;
-  const newBook = {
-    id: books.length ? books[books.length - 1].id + 1 : 1,
-    title,
-    author
-  };
-  books.push(newBook);
-  res.status(201).json(newBook);
+// ➕ Add a new book
+app.post('/api/books', async (req, res) => {
+  try {
+    const { title, author } = req.body;
+    const newBook = new Book({ title, author });
+    await newBook.save();
+    res.status(201).json(newBook);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
 });
 
-app.patch('/api/books/:id', (req, res) => {
-  const book = books.find(b => b.id === parseInt(req.params.id));
-  if (!book) return res.status(404).json({ message: 'Book not found' });
-
-  const { title, author } = req.body;
-  if (title) book.title = title;
-  if (author) book.author = author;
-
-  res.json(book);
+// ✏️ Update a book (partial)
+app.patch('/api/books/:id', async (req, res) => {
+  try {
+    const updates = req.body;
+    const book = await Book.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!book) return res.status(404).json({ message: "Book not found" });
+    res.json(book);
+  } catch {
+    res.status(400).json({ message: "Invalid ID or update data" });
+  }
 });
 
-app.delete('/api/books/:id', (req, res) => {
-  const index = books.findIndex(b => b.id === parseInt(req.params.id));
-  if (index === -1) return res.status(404).json({ message: 'Book not found' });
-
-  const removed = books.splice(index, 1);
-  res.json({ message: `Book with ID ${removed[0].id} deleted.` });
+// 🗑️ Delete a book
+app.delete('/api/books/:id', async (req, res) => {
+  try {
+    const book = await Book.findByIdAndDelete(req.params.id);
+    if (!book) return res.status(404).json({ message: "Book not found" });
+    res.json({ message: "Book deleted successfully" });
+  } catch {
+    res.status(400).json({ message: "Invalid ID" });
+  }
 });
 
+// 🚀 Start server
 app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`🚀 Server is running on http://localhost:${PORT}`);
 });
